@@ -1,11 +1,15 @@
 """
+
 SLURMTaskQueue
 
-Defines main class for executing a collection of tasks in a single SLURM job.
+Defines classes for executing a collection of tasks in a single SLURM job. A
+task is defined as a command to be run in parallel using a given number of
+SLURM tasks, as would be run with `ibrun -n`.
 """
 
 import argparse as ap
 import copy
+from prettytable import PrettyTable
 import json
 import logging
 import os
@@ -16,12 +20,15 @@ import subprocess
 import sys
 import tempfile
 import time
+import json
 from pathlib import Path
+import shutil
+from pythonjsonlogger import jsonlogger
+import traceback
 
 __author__ = "Carlos del-Castillo-Negrete"
 __copyright__ = "Carlos del-Castillo-Negrete"
 __license__ = "MIT"
-
 
 def _expand_int_list(s):
     """Expands int lists with ranges."""
@@ -41,27 +48,48 @@ def _compact_int_list(i, delim=","):
         return ""
     elif len(i) == 1:
         return f"{i[0]}"
-    if i[1] != (i[0] + 1):
-        return f"{i[0]}{delim}{_compact_int_list(i[1:])}"
-    else:
-        for e in range(1, len(i)):
-            if i[e] != i[0] + e:
-                return f"{i[0]}-{i[e-1]}{delim}{_compact_int_list(i[e:])}"
-        return f"{i[0]}-{i[-1]}"
+    for e in range(1, len(i)):
+        if i[e] != i[0] + e:
+            return f"{i[0]}-{i[e-1]}{delim}{_compact_int_list(i[e:])}"
+    return f"{i[0]}-{i[-1]}"
 
+def _print_res(res, fields, search=None, match=r'.'):
+    """
+    Print results
 
-class SLURMTaskException(Exception):
-    """A very basic exception mechanism"""
+    Prints dictionary keys in list `fields` for each dictionary in res,
+    filtering on the search column if specified with regular expression
+    if desired.
 
-    def __init__(self, str):
-        print(str)
-        self.str = str
+    Parameters
+    ----------
+    res : List[dict]
+        List of dictionaries containing response of an AgavePy call
+    fields : List[string]
+        List of strings containing names of fields to extract for each element.
+    search : string, optional
+        String containing column to perform string patter matching on to
+        filter results.
+    match : str, default='.'
+        Regular expression to match strings in search column.
 
-    def __str__(self):
-        return self.str
+    """
+    # Initialize Table
+    x = PrettyTable()
+    x.field_names = fields
 
+    # Build table from results
+    for r in res:
+        if search is not None:
+            if re.search(match, r[search]) is not None:
+                x.add_row([r[f] for f in fields])
+        else:
+            x.add_row([r[f] for f in fields])
 
-class SLURMTaskSlot:
+    # Print Table
+    print(x)
+
+class Slot:
     """
     Combination of (host, idx) that can run a SLURM task. A slot can have
     a task associated with it or be free. `host` corresponds to the name of the
@@ -92,8 +120,8 @@ class SLURMTaskSlot:
         details.
     free : bool
         False if slot is being occupied currently by a task, True otherwise.
-    tasks : List[SLURMTask]
-        List of SLURMTask objects that have been executed on this slot. If the
+    tasks : List[Task]
+        List of Task objects that have been executed on this slot. If the
         slot is currently occupied, the last element in the list corresponds to
         the currently running task.
     """
@@ -110,7 +138,7 @@ class SLURMTaskSlot:
 
         Parameters
         ----------
-        task: :class:SLURMTask
+        task: :class:Task
             Task object that will occupy the slot.
 
         Raises
@@ -120,7 +148,7 @@ class SLURMTaskSlot:
 
         """
         if not self.free:
-            raise ValueError(f"Trying to occupy a busy node {self}")
+            raise AttributeError(f"Trying to occupy a busy node {self}")
         self.tasks.append(task)
         self.free = False
 
@@ -128,17 +156,21 @@ class SLURMTaskSlot:
         """Make slot unoccupied."""
         self.free = True
 
-    def isfree(self):
+    def is_free(self):
         """Test whether slot is occupied"""
         return self.free
 
     def __str__(self):
         s = "FREE - " if self.free else "BUSY - "
-        s += f"h:{self.host}, c:{self.idx}, tasks:{self.tasks}"
+        s += f"({self.host}, {self.idx}), tasks:{self.tasks}"
+        return s
+
+    def __repr__(self):
+        s = f"Slot({self.host}, {self.idx})"
         return s
 
 
-class SLURMTask:
+class Task:
     """
     Command to be executed in parallel using ibrun on a slot of SLURM tasks as
     designated by :class:SLURMTaskQueue. This class contains the particulars of
@@ -160,16 +192,16 @@ class SLURMTask:
     Attributes
     ----------
     task_id : int
-        Unique task ID to assign to this SLURM Task.
+        Unique task ID to assign to this Task.
     cmnd : str
         Main command to be wrapped in `ibrun` with the appropriate offset/extent
         parameters for parallel execution.
     cores : int
         Number of cores, which correspond to SLURM job task numbers, to use for
         the job.
-    pre_proccess : str
+    pre : str
         Command to be executed in serial before the main parallel command.
-    post_proccess : str
+    post : str
         Command to be executed in serial after the main parallel command.
     cdir: str
         directory to change to before executing the main parallel command.
@@ -203,26 +235,24 @@ class SLURMTask:
     def __init__(self,
             task_id: int,
             cmnd: str,
+            workdir: str,
             cores: int=1,
-            pre_process: str=None,
-            post_process: str=None,
-            cdir: str=None,
-            workdir: str=None):
+            pre: str=None,
+            post: str=None,
+            cdir: str=None):
 
         self.task_id = task_id
         self.command = cmnd
         self.cores = int(cores)
-        self.pre_process = pre_process
-        self.post_process = post_process
+        self.pre = pre
+        self.post = post
         self.cdir = cdir
 
-        if workdir is None:
-            workdir = Path.cwd() if workdir is None else Path(workdir)
-            self.workdir = workdir / f"task_{task_id}"
-        else:
-            self.workdir = Path(workdir)
-        self.workdir.mkdir(exist_ok=exist_ok)
+        if self.cores <= 0:
+            raise ValueError(f'Cores for task must be >=0')
 
+        self.workdir = Path(workdir)
+        self.workdir.mkdir(exist_ok=True)
         self.logfile = self.workdir / f"{task_id}-log"
         self.errfile = self.workdir / f"{task_id}-err"
         self.execfile = self.workdir / f"{task_id}-exec"
@@ -232,21 +262,19 @@ class SLURMTask:
         self.end_ts = None
         self.running_time = None
         self.rc = None
+        self.err_msg = None
+        self.pid = None
         self.sub_proc = None
 
-    def __getitem__(self, ind):
-        return self.data.get(ind, None)
-
     def __str__(self):
-        r = f"command=<<{self.command}>>"
-        r += f", cores={self.cores}"
-        if self.pre_process is not None:
-            r += f", pre=<<{self.pre_process}>>"
-        if self.post_process is not None:
-            r += f", pre=<<{self.post_process}>>"
-        if self.cdir is not None:
-            r += f", cdir=<<{self.cdir}>>"
-        return r
+        s = f"(id:{self.task_id}, cmnd:<<{self.command}>>, cores:{self.cores}, "
+        s += f"pre:<<{self.pre}>>, post:<<{self.post}>>, cdir:{self.cdir})"
+        return s
+
+    def __repr__(self):
+        s = f"Task({self.task_id}, {self.command}, {self.cores}, "
+        s += f"{self.pre}, '{self.post}', {self.cdir})"
+        return s
 
     def _wrap(self, offset, extent):
         """Take a commandline, write it to a small file, and return the
@@ -254,8 +282,8 @@ class SLURMTask:
         """
         f = open(self.execfile, "w")
         f.write("#!/bin/bash\n\n")
-        if self.pre_process is not None:
-            f.write(f"{self.pre_process}\n")
+        if self.pre is not None:
+            f.write(f"{self.pre}\n")
             f.write("if [ $? -ne 0 ]\n")
             f.write("then\n")
             f.write("  exit 1\n")
@@ -270,8 +298,8 @@ class SLURMTask:
         f.write("then\n")
         f.write("  exit 1\n")
         f.write("fi\n")
-        if self.post_process is not None:
-            f.write(f"{self.post_process}\n")
+        if self.post is not None:
+            f.write(f"{self.post}\n")
             f.write("if [ $? -ne 0 ]\n")
             f.write("then\n")
             f.write("  exit 1\n")
@@ -314,7 +342,7 @@ class SLURMTask:
         self.sub_proc = subprocess.Popen(
             self._wrap(offset, extent), shell=True, stdout=subprocess.PIPE
         )
-        logger.info(f"{self.task_id} running on process {self.sub_proc.pid}")
+        self.pid = self.sub_proc.pid
 
     def terminate(self):
         """Terminate subprocess executing task if it exists."""
@@ -327,14 +355,13 @@ class SLURMTask:
         if self.rc is not None:
             self.end_ts = time.time()
             self.running_time = self.end_ts - self.start_ts
-            logging.info(f"completed {self.task_id} in {self.running_time:5.3f}")
+            if self.rc > 0:
+                if Path(self.errfile).stat().st_size>0:
+                    with open(self.errfile, 'r') as lf:
+                        self.err_msg = lf.readlines()[-1]
             return self.rc
 
-        return -1
-
-    def __repr__(self):
-        s = f"task_id: {self.task_id}, cmnd: <<{self.command}>>, cores: {self.cores}"
-        return s
+        return self.rc
 
 
 class SLURMTaskQueue:
@@ -345,13 +372,13 @@ class SLURMTaskQueue:
 
     Attributes
     ----------
-    task_slots : List(:class:SLURMTaskSlot)
+    task_slots : List(:class:Slot)
         List of task slots available. This is parsed upon initialization from
         SLURM environment variables SLURM_JOB_NODELIST and SLURM_TASKS_PER_NODE.
     workdir : str
         Path to directory to store files for tasks executed, if the tasks
         themselves dont specify their own work directories. Defaults to a
-        directory with the prefix `.pylauncher-job{SLURM_JOB_ID}-` in the
+        directory with the prefix `.stq-job{SLURM_JOB_ID}-` in the
         current working directory.
     delay : float
         Number of seconds to pause between iterations of updating the queue.
@@ -368,22 +395,22 @@ class SLURMTaskQueue:
         it was added to the queue.
     running_time : float
         Total running time of the queue when `run()` is executed.
-    queue : List(:clas:SLURMTask)
-        List of :class:SLURMTasks in queue. Populated via the
+    queue : List(:class:Task)
+        List of :class:Task in queue. Populated via the
         `enqueue_from_json()` method.
-    running : List(:clas:SLURMTask)
-        List of :class:SLURMTasks that are currently running.
-    completed : List(:clas:SLURMTask)
-        List of :class:SLURMTasks that are completed running successfully, in
+    running : List(:clas:Task)
+        List of :class:Task that are currently running.
+    completed : List(:clas:Task)
+        List of :class:Task that are completed running successfully, in
         that the process executing them returned a 0 exit code.
-    errored : List(:clas:SLURMTask)
-        List of :class:SLURMTasks that failed to run successfully in that the
+    errored : List(:clas:Task)
+        List of :class:Task that failed to run successfully in that the
         processes executing them returned a non-zero exit code..
-    timed_out : List(:clas:SLURMTask)
-        List of :class:SLURMTasks that failed to run successfully in that the
+    timed_out : List(:clas:Task)
+        List of :class:Task that failed to run successfully in that the
         their runtime exceeded `task_max_runtime`.
-    invalid : List(:clas:SLURMTask)
-        List of :class:SLURMTasks that were not run because their configurations
+    invalid : List(:clas:Task)
+        List of :class:Task that were not run because their configurations
         were invalid, or the amount of resources required to run them was too
         large.
     """
@@ -394,18 +421,14 @@ class SLURMTaskQueue:
         task_max_runtime: float = 1e10,
         max_runtime: float = 1e10,
         delay: float = 1,
+        loglevel: int = logging.DEBUG,
     ):
-
-        # Node list - Initialize from SLURM environment
-        self.task_slots = []
-        self._init_task_slots()
-
         # Default workdir for executing tasks if task doesn't specify workdir
         self.workdir = workdir
         if self.workdir is None:
             self.workdir = Path(
                 tempfile.mkdtemp(
-                    prefix=f'.pylauncher-job{os.environ["SLURM_JOB_ID"]}-',
+                    prefix=f'.stq-job{os.environ["SLURM_JOB_ID"]}-',
                     dir=Path.cwd(),
                 )
             )
@@ -413,10 +436,23 @@ class SLURMTaskQueue:
             self.workdir = Path(workdir) if type(workdir) != Path else workdir
             self.workdir.mkdir(exist_ok=True)
 
+        # Set-up job logging
+        self._logger = logging.getLogger(__name__)
+        _logHandler = logging.FileHandler(self.workdir / 'tq_log.json')
+        _formatter = jsonlogger.JsonFormatter(
+                '%(asctime)s %(name)s - %(levelname)s:%(message)s')
+        _logHandler.setFormatter(_formatter)
+        self._logger.addHandler(_logHandler)
+        self._logger.setLevel(loglevel)
+
+        # Node list - Initialize from SLURM environment
+        self.task_slots = []
+        self._init_task_slots()
+
         # Set queue runtime constants
         self.delay = delay
         self.task_max_runtime = task_max_runtime
-        self.max_runtime = maxruntime
+        self.max_runtime = max_runtime
 
         # Initialize Task Queue Arrays
         self.task_count = 0
@@ -431,32 +467,49 @@ class SLURMTaskQueue:
         # Enqueue tasks from json file
         self.enqueue_from_json(commandfile)
 
+        self._logger.info(f'Queue initialized: {self}', extra=self.__dict__)
 
-    def __repr__(self):
-        completed = sorted([t.task_id for t in self.completed])
-        timed_out = sorted([t.task_id for t in self.timed_out])
-        errored = sorted([t.task_id for t in self.errored])
-        queued = sorted([t.task_id for t in self.queue])
-        running = sorted([t.task_id for t in self.running])
-        return (
-            "completed: "
-            + str(_compact_int_list(completed))
-            + "\ntimed_out: "
-            + str(_compact_int_list(timed_out))
-            + "\nerrored: "
-            + str(_compact_int_list(errored))
-            + "\nqueued: "
-            + str(_compact_int_list(queued))
-            + "\nrunning: "
-            + str(_compact_int_list(running))
-            + "."
-        )
+    def __str__(self):
+        queue_str = ""
+        sc = lambda x :  _compact_int_list(sorted([t.task_id for t in x]))
+        if len(self.queue) > 0:
+            queue_str += f"queued=[{sc(self.queue)}], "
+        if len(self.running) > 0:
+            queue_str += f"running=[{sc(self.running)}], "
+        if len(self.completed) > 0:
+            queue_str += f"completed=[{sc(self.completed)}], "
+        if len(self.timed_out) > 0:
+            queue_str += f"timed_out=[{sc(self.timed_out)}], "
+        if len(self.errored) > 0:
+            queue_str += f"errored=[{sc(self.errored)}, "
+        queue_str = queue_str[:-2] if len(queue_str)!=0 else queue_str
+
+        unique_slots = list(set([s.host for s in self.task_slots]))
+        status = []
+        for h in unique_slots:
+            free = []; busy = [];
+            for s in self.task_slots:
+                if s.host == h:
+                    if s.is_free():
+                        free.append(s.idx)
+                    else:
+                        busy.append(s.idx)
+            status.append((h, _compact_int_list(free), _compact_int_list(busy)))
+        slots = [f'{x[0]}: (FREE: [{x[1]}], BUSY: [{x[2]}])' for x in status]
+
+        s = f"(workdir: {self.workdir}, "
+        s += f"slots: [{', '.join(slots)}], "
+        s += f"queue-state:[{queue_str}])"
+
+        return s
 
     def _init_task_slots(self):
         """Initialize available task slots from SLURM environment variables"""
         hl = []
-        host_groups = re.split(r",\s*(?![^\[\]]*\])",
-                os.environ["SLURM_JOB_NODELIST"])
+        slurm_nodelist = os.environ["SLURM_JOB_NODELIST"]
+        self._logger.debug(f'Parsing SLURM_JOB_NODELIST {slurm_nodelist}',
+                extra={'SLURM_JOB_NODELIST':slurm_nodelist})
+        host_groups = re.split(r",\s*(?![^\[\]]*\])", slurm_nodelist)
         for hg in host_groups:
             splt = hg.split("-")
             h = splt[0] if type(splt) == list else splt
@@ -464,19 +517,29 @@ class SLURMTaskQueue:
             ns = ns[1:-1] if ns[0] == "[" else ns
             padding = min([len(x) for x in re.split(r"[,-]", ns)])
             hl += [f"{h}-{str(x).zfill(padding)}" for x in _expand_int_list(ns)]
+        self._logger.debug(f'Parsed nodelist {hl}', extra={'hl':hl})
 
         tasks_per_host = []
-        for idx, tph in enumerate(os.environ["SLURM_TASKS_PER_NODE"].split(",")):
+        slurm_tph = os.environ["SLURM_TASKS_PER_NODE"]
+        self._logger.debug(f'Parsing SLURM_TAKS_PER_NODE {slurm_tph}')
+        total_idx = 0
+        for idx, tph in enumerate(slurm_tph.split(",")):
             mult_split = tph.split("(x")
             ntasks = int(mult_split[0])
             if len(mult_split) > 1:
                 for i in range(int(mult_split[1][:-1])):
                     tasks_per_host.append(ntasks)
                     for j in range(ntasks):
-                        self.task_slots.append(SLURMTaskSlot(hl[idx], j))
+                        self.task_slots.append(Slot(hl[idx], total_idx + j))
+                        self._logger.debug(
+                                f'Initialized slot {self.task_slots[-1]}')
+                    total_idx += ntasks
             else:
                 for j in range(ntasks):
-                    self.task_slots.append(SLURMTaskSlot(hl[idx], j))
+                    self.task_slots.append(Slot(hl[idx], total_idx + j))
+                    self._logger.debug(f'Initialized slot {self.task_slots[-1]}')
+                total_idx += ntasks
+        self._logger.debug(f'Initialized {len(self.task_slots)}')
 
     def _request_slots(self, task):
         """Request a number of slots for a task"""
@@ -487,25 +550,36 @@ class SLURMTaskQueue:
             if start + cores > len(self.task_slots):
                 return False
             for i in range(start, start + cores):
-                found = self.task_slots[i].isfree()
+                found = self.task_slots[i].is_free()
                 if not found:
                     start = i + 1
                     break
 
-        # Execute task
-        task.execute(locator[0], locator[1])
+        # If reach here -> Execute task on offset equal to start
+        self._logger.debug(f"Starting {task.task_id} at slot index {start}",
+                extra=task.__dict__)
+        task.execute(start, cores)
+        self._logger.info(
+                f"{task.task_id} running on process {task.sub_proc.pid}",
+                extra=task.__dict__)
 
         # Mark slots as occupied with with task_id
         for n in range(start, start + cores):
-            self.task_slots[n].occupy(task)
+            s = self.task_slots[n]
+            self._logger.debug(f'Occupying slot{s}', extra=s.__dict__)
+            s.occupy(task)
+            self._logger.debug(f'Slot{s} occupied', extra=s.__dict__)
 
         return True
 
     def _release_slots(self, task_id):
         """Given a task id, release the slots that are associated with it"""
         for s in self.task_slots:
-            if s.task_id == task_id:
-                s.release()
+            if not s.is_free():
+                if s.tasks[-1].task_id == task_id:
+                    self._logger.debug(f'Releasing slot {s}', extra=s.__dict__)
+                    s.release()
+                    self._logger.debug(f'Slot {s} released', extra=s.__dict__)
 
     def _start_queued(self):
         """
@@ -521,16 +595,27 @@ class SLURMTaskQueue:
         tqueue.sort(key=lambda x: -x.cores)
         for task in tqueue:
             if task.cores > len(self.task_slots):
-                logger.info(f"Task {task} to large. Adding to invalid list.")
+                self._logger.warning(
+                        f"Task {task} to large. Adding to invalid list.",
+                        extra=task.__dict__)
                 self.queue.remove(task)
                 self.invalid.append(task)
                 continue
             if self._request_slots(task):
-                logger.info(f"Successfully found resources for task {task}")
+                self._logger.info(
+                        f"Successfully found resources for task {task}",
+                        extra=task.__dict__)
                 self.queue.remove(task)
                 self.running.append(task)
             else:
-                logger.info(f"Unable to find resources for {task}.")
+                self._logger.debug(
+                        f"Unable to find resources for {task}.",
+                        extra=task.__dict__)
+
+        num_removed = len(tqueue) - len(self.queue)
+        if num_removed > 0:
+            self._logger.info(f"{num_removed} tasks removed from queue",
+                    extra=self.__dict__)
 
     def _update(self):
         """
@@ -543,26 +628,41 @@ class SLURMTaskQueue:
         running = []
         for t in self.running:
             rc = t.get_rc()
-            if rc == 0:
-                self.completed.append(t)
-                to_release_task_ids.append(t.task_id)
-            elif rc > 0:
-                self.errored.append(t)
-                to_release_task_ids.append(t.task_id)
-            else:
+            if rc is None:
                 rt = time.time() - t.start_ts
                 if rt > self.task_max_runtime:
-                    logging.info(f"Task {t} has exceeded max runtime: {rt}")
-                    logging.info(f"Aborting task {t.task_id}")
+                    self._logger.error(
+                            f"Task {t.task_id} has exceeded max runtime {rt}",
+                            extra=t.__dict__)
                     t.terminate()
                     self.timed_out.append(t)
+                    to_release_task_ids.append(t.task_id)
                 else:
                     running.append(t)
+            else:
+                if rc == 0:
+                    self._logger.info(
+                            f"{t.task_id} DONE: {t.running_time:5.3f}s",
+                            extra=t.__dict__)
+                    self.completed.append(t)
+                    to_release_task_ids.append(t.task_id)
+                else:
+                    msg = f"{t.task_id} FAILED: rt = {t.running_time:5.3f}s, "
+                    msg += f"rc = {t.rc}, err file (last_line) = {t.err_msg}"
+                    self._logger.error(msg, extra=t.__dict__)
+                    self.errored.append(t)
+                    to_release_task_ids.append(t.task_id)
+
         self.running = running
 
         # Release slots for completed tasks
-        for task_id in to_release_task_ids:
-            self._release_slots(task_id)
+        if len(to_release_task_ids) > 0:
+            self._logger.info(
+                    f"Releasing slots related to nodes {to_release_task_ids}",
+                    extra={'to_release': to_release_task_ids})
+            for task_id in to_release_task_ids:
+                self._release_slots(task_id)
+            self._logger.info(f"Queue updated {self}", extra=self.__dict__)
 
     def enqueue_from_json(self, filename, cores=1):
         """
@@ -582,18 +682,27 @@ class SLURMTaskQueue:
             task configuration.
 
         """
+        self._logger.debug(f'Loading json task file {filename}')
         with open(filename, "r") as fp:
             task_list = json.load(fp)
+        self._logger.debug(f'Found {len(task_list)} tasks.')
 
         for i, t in enumerate(task_list):
-            task = SLURMTask(
-                    self.task_count,
-                    t.pop('cmnd', None),
-                    t.pop('cores', cores),
-                    t.pop('pre_process', None),
-                    t.pop('post_process', None),
-                    t.pop('cdir', None),
-                    t.pop('workdir', self.wordir))
+            self._logger.debug(f'Attempting to create task {self.task_count}',
+                    extra=t)
+            try:
+                task = Task(
+                        self.task_count,
+                        t.pop('cmnd', None),
+                        t.pop('workdir', self.workdir),
+                        t.pop('cores', cores),
+                        t.pop('pre', None),
+                        t.pop('post', None),
+                        t.pop('cdir', None))
+            except ValueError as v:
+                self._logger.error(f'Bad task in list at idx {i}: {v}', extra=t)
+                continue
+            self._logger.debug(f'Enqueing {task}', extra=task.__dict__)
             self.queue.append(task)
             self.task_count += 1
 
@@ -603,18 +712,22 @@ class SLURMTaskQueue:
         `max_runtime` is exceeded.
         """
         self.start_ts = time.time()
-        logging.info("Starting launcher job")
+        self._logger.info("Starting launcher job", extra=self.__dict__)
         while True:
             # Check to see if max runtime is exceeded
             elapsed = time.time() - self.start_ts
-            if elapsed > self.maxruntime:
-                logger.info("Exceeded max runtime")
+            self._logger.debug("Starting run iteration",
+                    extra={'elapsed_time': elapsed})
+            if elapsed >= self.max_runtime:
+                self._logger.info("Exceeded max runtime", extra=self.__dict__)
                 break
 
             # Start queued jobs
+            self._logger.debug("Starting queued tasks", extra=self.__dict__)
             self._start_queued()
 
             # Update queue for completed/errored jobs
+            self._logger.debug("Updating task lists", extra=self.__dict__)
             self._update()
 
             # Wait for a bit
@@ -623,10 +736,28 @@ class SLURMTaskQueue:
             # Check if done
             if len(self.running) == 0:
                 if len(self.queue) == 0:
-                    logging.info(f"Running and queue are empty.")
+                    self._logger.info(f"Running and queue are empty.")
                     break
-                else:
-                    logging.info(f"Running list empty but queue is not {self.queue}")
 
         self.running_time = time.time() - self.start_ts
+
+    def read_log(self):
+        """Return read json log"""
+        log_entries = []
+        with open(self.workdir / 'tq_log.json', 'r') as f:
+            for line in f:
+                log_entries.append(json.loads(line))
+        return log_entries
+
+    def view_log(self,
+            fields=['asctime', 'levelname', 'message'],
+            search='message',
+            match=r'.'):
+        """Print log entries"""
+        log = self.read_log()
+        _print_res(log, fields=fields, search=search, match=match)
+
+    def cleanup(self):
+        """Clean-up Task Queue by removing workdir"""
+        shutil.rmtree(str(self.workdir))
 
