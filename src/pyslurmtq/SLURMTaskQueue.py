@@ -92,6 +92,7 @@ class SLURMTaskQueue:
         max_runtime: float = 1e10,
         delay: float = 1,
         loglevel: int = logging.DEBUG,
+        summary_interval: float = 60,
     ):
         # Default workdir for executing tasks if task doesn't specify workdir
         self.workdir = workdir
@@ -123,6 +124,7 @@ class SLURMTaskQueue:
         self.delay = delay
         self.task_max_runtime = task_max_runtime
         self.max_runtime = max_runtime
+        self.summary_interval = summary_interval
 
         # Initialize Task Queue Arrays
         self.task_count = 0
@@ -285,7 +287,8 @@ class SLURMTaskQueue:
 
         num_removed = len(tqueue) - len(self.queue)
         if num_removed > 0:
-            self._logger.info(f"Queue updated: {self}", extra=self.__dict__)
+            self._logger.info(f"Started {num_removed} tasks",
+                    extra=self.__dict__)
 
     def _terminate_and_release(self, task, msg):
         """Teriminate a task and release its resources"""
@@ -330,9 +333,17 @@ class SLURMTaskQueue:
 
 
         # Release slots for completed tasks
-        if len(running) != len(self.running):
+        finished = len(self.running) - len(running)
+        if finished > 0:
             self.running = running
-            self._logger.info(f"Queue updated {self}", extra=self.__dict__)
+            self._logger.info("{finished} tasks finished", extra=self.__dict__)
+
+    def _save_summary(self):
+        """Save task and queue summaries to workdir"""
+        _  = self.summary_by_task(print_res=False,
+                fname=str(self.workdir / 'task_summary.txt'))
+        _  = self.summary_by_slot(print_res=False,
+                fname=str(self.workdir / 'slot_summary.txt'))
 
     def enqueue_from_json(self, filename, cores=1):
         """
@@ -383,24 +394,28 @@ class SLURMTaskQueue:
         """
         self.start_ts = time.time()
         self._logger.info("Starting launcher job", extra=self.__dict__)
+        self._save_summary()
+        summary_counter =time.time()
         while True:
-            # Check to see if max runtime is exceeded
             elapsed = time.time() - self.start_ts
-            # self._logger.debug(f"run ts {elapsed}:\n{self.summary_by_task()}",
-            #         extra={'elapsed_time': elapsed})
+
+            if elapsed - summary_counter > self.summary_interval:
+                self._save_summary()
+                summary_counter = elapsed
+
             if elapsed >= self.max_runtime:
-                msg = f"Queue exceeded max runtime: {elapsed}>{self.max_runtime}"
+                msg = f"Exceeded max runtime : {elapsed}>{self.max_runtime}"
                 self._logger.info(msg, extra=self.__dict__)
                 for t in self.running:
                     self._terminate_and_release(t, msg)
                 break
 
             # Start queued jobs
-            self._logger.debug("Starting queued tasks", extra=self.__dict__)
+            self._logger.debug("Starting queued tasks")
             self._start_queued()
 
             # Update queue for completed/errored jobs
-            self._logger.debug("Updating task lists", extra=self.__dict__)
+            self._logger.debug("Updating task lists")
             self._update()
 
             # Wait for a bit
@@ -414,6 +429,7 @@ class SLURMTaskQueue:
 
         self.running_time = time.time() - self.start_ts
         self._logger.info("Queue run finished", extra=self.__dict__)
+        self._save_summary()
 
     def read_log(self):
         """Return read json log"""
@@ -440,6 +456,7 @@ class SLURMTaskQueue:
             match=r'.',
             all_fields=False,
             print_res=True,
+            fname=None,
             ):
         """Summarize queue stats by task"""
         avail_fields = ['task_id', 'command', 'cores', 'pre', 'post', 'cdir',
@@ -473,17 +490,18 @@ class SLURMTaskQueue:
 
         fields = ['status'] + fields
         filtered = filter_res(task_info, fields=fields, search=search,
-                match=match, print_res=print_res)
+                match=match, print_res=print_res, output_file=fname)
 
         return filtered
 
-    def summary_by_slots(self,
+    def summary_by_slot(self,
             fields=['idx', 'host', 'status', 'num_tasks', 'task_ids',
                 'free_time', 'busy_time'],
             search=None,
             match=r'.',
             all_fields=False,
             print_res=True,
+            fname=None,
 ):
         """Summarize queue stats by slots"""
         avail_fields = ['idx', 'host', 'status', 'num_tasks', 'task_ids',
@@ -505,7 +523,7 @@ class SLURMTaskQueue:
 
         fields = fields
         filtered = filter_res(slot_info, fields=fields, search=search,
-                match=match, print_res=print_res)
+                match=match, print_res=print_res, output_file=fname)
 
         return filtered
 

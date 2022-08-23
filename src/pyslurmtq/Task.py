@@ -211,6 +211,8 @@ class Task:
             if self.rc > 0:
                 self.err_msg = self.read_err(lineno=1)[0]
             return self.rc
+        else:
+            self.running_time = time.time() - self.start_ts
 
         return self.rc
 

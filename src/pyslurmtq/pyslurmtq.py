@@ -159,12 +159,8 @@ def main(args):
     _logger.info("Running Task Queue")
     tq.run()
     _logger.info("Done Running Tasks in Queue")
-    _logger.info(f"Task Queue: {tq}")
-    _logger.info("FULL Log:")
-    log = tq.view_log(search=None)
-    _logger.info("INFO Events only:")
-    log = tq.view_log(search='levelname', match=r'INFO')
-    _logger.info("Cleaning up")
+    _logger.info(f"Task Summary:\n{tq.summary_by_task()}")
+    _logger.info(f"Slot Ussage Summary:\n{tq.summary_by_slot()}")
     if args.cleanup:
         tq.cleanup()
 

@@ -21,7 +21,7 @@ import shutil
 import sys
 from pathlib import Path
 from unittest.mock import patch
-from conftest import test_dir
+from conftest import test_dir, multiple_node_multiple_tasks, gen_test_file
 
 import pytest
 from pyslurmtq.pyslurmtq import main, run
@@ -30,19 +30,24 @@ __author__ = "Carlos del-Castillo-Negrete"
 __copyright__ = "Carlos del-Castillo-Negrete"
 __license__ = "MIT"
 
-test_dir = Path(__file__).parent / "test_tq"
+def test_run(capsys, multiple_node_multiple_tasks, test_dir):
 
-def test_run(capsys):
-    """Test run entrypoint. Path command line arguments"""
-    _setup_test_dir()
-    os.environ["SLURM_JOB_ID"] = "123456"
-    os.environ["SLURM_JOB_NODELIST"] = "c303-005"
-    os.environ["SLURM_TASKS_PER_NODE"] = "1"
-
-    test_file = _test_task_list(cmnd="echo main", cores=1, num_tasks=1, sleep=1)
+    task_file = gen_test_file(
+            test_dir,
+            cmnd="touch foo; echo NOERROR",
+            pre='echo PRE',
+            post='echo POST',
+            random_tasks=10,
+            bad_tasks=1,
+            fail_tasks=2,
+            max_cores=15,
+            sleep = 0.1,
+            max_sleep=2)
     testargs = [
         "pyslurmtq",
-        f"{test_file}",
+        f"{task_file}",
+        "--workdir",
+        f"{test_dir}",
         "--delay",
         "1",
         "--task-max-rt",
@@ -50,9 +55,10 @@ def test_run(capsys):
         "--max-rt",
         "10",
         "--no-cleanup",
-        "-vv",
+        "-v",
     ]
     with patch.object(sys, "argv", testargs):
         run()
+        pdb.set_trace()
 
     # TODO: Check output and delte default workdir created by task queue

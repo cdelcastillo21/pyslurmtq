@@ -34,7 +34,8 @@ def compact_int_list(i, delim=","):
             return f"{i[0]}-{i[e-1]}{delim}{compact_int_list(i[e:])}"
     return f"{i[0]}-{i[-1]}"
 
-def filter_res(res, fields, search=None, match=r'.', print_res=False):
+def filter_res(res, fields, search=None, match=r'.', print_res=False,
+        output_file=None):
     """
     Print results
 
@@ -53,6 +54,8 @@ def filter_res(res, fields, search=None, match=r'.', print_res=False):
         filter results.
     match : str, default='.'
         Regular expression to match strings in search column.
+    output_file : str, optional
+        Path to file to output result table to.
 
     """
     # Initialize Table
@@ -73,5 +76,9 @@ def filter_res(res, fields, search=None, match=r'.', print_res=False):
     # Print Table
     if print_res:
         print(x)
+
+    if output_file is not None:
+        with open(output_file, 'w') as fp:
+            fp.write(str(x))
 
     return filtered_res

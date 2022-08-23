@@ -88,7 +88,7 @@ class TestSLURMTaskQueue:
         timeout_task_queue.run()
         assert len(timeout_task_queue.timed_out) == 1
         task = timeout_task_queue.timed_out[0]
-        assert 'Queue exceeded max runtime' in task.err_msg
+        assert 'Exceeded max runtime' in task.err_msg
 
     def test_task_timeout(self, task_timeout_task_queue):
         """Single task that is too large for queue"""
@@ -125,6 +125,6 @@ class TestSLURMTaskQueue:
         invalid = [x for x in summary if x['status'] == 'invalid']
         assert len(invalid) == 3
 
-        slot_summary =  multiple_good_and_bad_queue.summary_by_slots()
+        slot_summary =  multiple_good_and_bad_queue.summary_by_slot()
         assert all([x['free_time'] < 2.0 for x in slot_summary])
         assert all([x['busy_time'] > 2.0 for x in slot_summary])
