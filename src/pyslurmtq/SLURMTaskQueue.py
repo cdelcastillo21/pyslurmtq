@@ -1,5 +1,4 @@
 """
-
 SLURMTaskQueue
 
 Defines classes for executing a collection of tasks in a single SLURM job. A
@@ -8,6 +7,7 @@ SLURM tasks, as would be run with `ibrun -n`.
 """
 
 import argparse as ap
+import linecache as lc
 import copy
 from prettytable import PrettyTable
 import json
@@ -26,343 +26,13 @@ import shutil
 from pythonjsonlogger import jsonlogger
 import traceback
 
+from pyslurmtq.Task import Task
+from pyslurmtq.Slot import Slot
+from pyslurmtq.utils import expand_int_list, compact_int_list, filter_res
+
 __author__ = "Carlos del-Castillo-Negrete"
 __copyright__ = "Carlos del-Castillo-Negrete"
 __license__ = "MIT"
-
-def _expand_int_list(s):
-    """Expands int lists with ranges."""
-    r = []
-    for i in s.split(","):
-        if "-" not in i:
-            r.append(int(i))
-        else:
-            l, h = map(int, i.split("-"))
-            r += range(l, h + 1)
-    return r
-
-
-def _compact_int_list(i, delim=","):
-    """Compacts int lists with ranges."""
-    if len(i) == 0:
-        return ""
-    elif len(i) == 1:
-        return f"{i[0]}"
-    for e in range(1, len(i)):
-        if i[e] != i[0] + e:
-            return f"{i[0]}-{i[e-1]}{delim}{_compact_int_list(i[e:])}"
-    return f"{i[0]}-{i[-1]}"
-
-def _print_res(res, fields, search=None, match=r'.'):
-    """
-    Print results
-
-    Prints dictionary keys in list `fields` for each dictionary in res,
-    filtering on the search column if specified with regular expression
-    if desired.
-
-    Parameters
-    ----------
-    res : List[dict]
-        List of dictionaries containing response of an AgavePy call
-    fields : List[string]
-        List of strings containing names of fields to extract for each element.
-    search : string, optional
-        String containing column to perform string patter matching on to
-        filter results.
-    match : str, default='.'
-        Regular expression to match strings in search column.
-
-    """
-    # Initialize Table
-    x = PrettyTable()
-    x.field_names = fields
-
-    # Build table from results
-    for r in res:
-        if search is not None:
-            if re.search(match, r[search]) is not None:
-                x.add_row([r[f] for f in fields])
-        else:
-            x.add_row([r[f] for f in fields])
-
-    # Print Table
-    print(x)
-
-class Slot:
-    """
-    Combination of (host, idx) that can run a SLURM task. A slot can have
-    a task associated with it or be free. `host` corresponds to the name of the
-    host that can execute the task, as accessible in the SLURM environment
-    variable SLURM_JOB_NODELIST or, locally from the host, in SLURM_NODENAME.
-    `idx` corresponds to the index in the total task list available to the
-    SLURM job that the slot corresponds to. For example if a job is being run
-    with 3 nodes and 5 total tasks (`-N 3 -n 5`), then the SLURM execution
-    environment will look something like:
-
-    .. code-block:: bash
-        SLURM_JOB_NODELIST=c303-[005-006],c304-005
-        SLURM_TASKS_PER_NODE=2(x2),1
-
-    In this scenario, host `cs303-005` would have slot idxs 1 and
-    2, `cs303-006` would have slots 3 and 4 associated with it, and host
-    `cs304-005` would have only slot 5 associated with it. Note that these task
-    slots do not corespond to the available CPUs per host available, which can
-    vary depending on the cluster being used.
-
-    Attributes
-    ----------
-    host : str
-        Name of compute node on a SLURM execution system. Corresponds to a host 
-        listed in the environment variable SLURM_JOB_NODELIST.
-    idx : int
-        Index of task in total available SLURM task slots. See above for more
-        details.
-    free : bool
-        False if slot is being occupied currently by a task, True otherwise.
-    tasks : List[Task]
-        List of Task objects that have been executed on this slot. If the
-        slot is currently occupied, the last element in the list corresponds to
-        the currently running task.
-    """
-
-    def __init__(self, host, idx):
-        self.host = host
-        self.idx = idx
-        self.free = True
-        self.tasks = []
-
-    def occupy(self, task):
-        """
-        Occupy a slot with a task.
-
-        Parameters
-        ----------
-        task: :class:Task
-            Task object that will occupy the slot.
-
-        Raises
-        -------
-        ValueError
-            If trying to occupy a slot that is not currently free.
-
-        """
-        if not self.free:
-            raise AttributeError(f"Trying to occupy a busy node {self}")
-        self.tasks.append(task)
-        self.free = False
-
-    def release(self):
-        """Make slot unoccupied."""
-        self.free = True
-
-    def is_free(self):
-        """Test whether slot is occupied"""
-        return self.free
-
-    def __str__(self):
-        s = "FREE - " if self.free else "BUSY - "
-        s += f"({self.host}, {self.idx}), tasks:{self.tasks}"
-        return s
-
-    def __repr__(self):
-        s = f"Slot({self.host}, {self.idx})"
-        return s
-
-
-class Task:
-    """
-    Command to be executed in parallel using ibrun on a slot of SLURM tasks as
-    designated by :class:SLURMTaskQueue. This class contains the particulars of
-    a task to be executing, including the main parallel command to be executed
-    in parallel using ibrun, optional pre/post process commands to be executed
-    serially, and an optional directory to change to before executing the main
-    parallel command. Once appropriate resources for the task have been found,
-    and the execute() method is called, the class `slots` attribute will be
-    filled with an `(offset, extent)` pair indicating what continuous region of
-    the available task slots is being occupied by the currently running task.
-    The command to be executed is then wrapped into a script file that is stored
-    in `workdir` and a :class:subprocess.Popen object is opened to execute the
-    script.
-
-    Note that the :class:SLURMTaskQueue handles the initialization and
-    management of task objects, and in general a user has no need to initialize
-    task objects individually.
-
-    Attributes
-    ----------
-    task_id : int
-        Unique task ID to assign to this Task.
-    cmnd : str
-        Main command to be wrapped in `ibrun` with the appropriate offset/extent
-        parameters for parallel execution.
-    cores : int
-        Number of cores, which correspond to SLURM job task numbers, to use for
-        the job.
-    pre : str
-        Command to be executed in serial before the main parallel command.
-    post : str
-        Command to be executed in serial after the main parallel command.
-    cdir: str
-        directory to change to before executing the main parallel command.
-    workdir : str
-        directory to store execution script, along with output and error files.
-    execfile : str
-        Path to shell script containing wrapped command to be run by the
-        subprocess that is spawned to executed the SLURM task. Note this file
-        won't exist until the task is executed.
-    logfile : str
-        Path to file where stdout of the SLURM task will be redirected to. Note
-        this file won't exist until the task is executed.
-    errfile : str
-        Path to file where stderr of the SLURM task will be redirected to. Note
-        this file won't exist until the task is executed.
-    slots : Tuple(int)
-        `(offset, extent)` tuple in SLURM Task slots where task is currently
-        being/was executed, or None if task has not been executed yet.
-    start_ts : float
-        Timestamp, in seconds since epoch, when task execution started, or None
-        if task has not been executed  yet.
-    end_ts : float
-        Timestamp, in seconds since epoch, when task execution finished, as
-        measured by first instance the process is polled using `get_rc()` with a
-        non-negative response, or None if task has not finished yet.
-    running_time : float
-        Timestamp, in seconds since epoch, when task execution finished, as
-        measured by first instance the process is polled using `get_rc()` with a
-        non-negative response, or None if task has not finished yet.
-    """
-    def __init__(self,
-            task_id: int,
-            cmnd: str,
-            workdir: str,
-            cores: int=1,
-            pre: str=None,
-            post: str=None,
-            cdir: str=None):
-
-        self.task_id = task_id
-        self.command = cmnd
-        self.cores = int(cores)
-        self.pre = pre
-        self.post = post
-        self.cdir = cdir
-
-        if self.cores <= 0:
-            raise ValueError(f'Cores for task must be >=0')
-
-        self.workdir = Path(workdir)
-        self.workdir.mkdir(exist_ok=True)
-        self.logfile = self.workdir / f"{task_id}-log"
-        self.errfile = self.workdir / f"{task_id}-err"
-        self.execfile = self.workdir / f"{task_id}-exec"
-
-        self.slots = None
-        self.start_ts = None
-        self.end_ts = None
-        self.running_time = None
-        self.rc = None
-        self.err_msg = None
-        self.pid = None
-        self.sub_proc = None
-
-    def __str__(self):
-        s = f"(id:{self.task_id}, cmnd:<<{self.command}>>, cores:{self.cores}, "
-        s += f"pre:<<{self.pre}>>, post:<<{self.post}>>, cdir:{self.cdir})"
-        return s
-
-    def __repr__(self):
-        s = f"Task({self.task_id}, {self.command}, {self.cores}, "
-        s += f"{self.pre}, '{self.post}', {self.cdir})"
-        return s
-
-    def _wrap(self, offset, extent):
-        """Take a commandline, write it to a small file, and return the
-        commandline that sources that file
-        """
-        f = open(self.execfile, "w")
-        f.write("#!/bin/bash\n\n")
-        if self.pre is not None:
-            f.write(f"{self.pre}\n")
-            f.write("if [ $? -ne 0 ]\n")
-            f.write("then\n")
-            f.write("  exit 1\n")
-            f.write("fi\n")
-        if self.cdir is not None:
-            f.write(f"cd {self.cdir}\n")
-            f.write(f"cwd=$(pwd)\n")
-        f.write(f"ibrun -o {offset} -n {extent} {self.command}\n")
-        if self.cdir is not None:
-            f.write(f"cd $cwd\n")
-        f.write("if [ $? -ne 0 ]\n")
-        f.write("then\n")
-        f.write("  exit 1\n")
-        f.write("fi\n")
-        if self.post is not None:
-            f.write(f"{self.post}\n")
-            f.write("if [ $? -ne 0 ]\n")
-            f.write("then\n")
-            f.write("  exit 1\n")
-            f.write("fi\n")
-        f.close()
-        os.chmod(
-            self.execfile,
-            stat.S_IXUSR
-            + +stat.S_IXGRP
-            + stat.S_IXOTH
-            + stat.S_IWUSR
-            + +stat.S_IWGRP
-            + stat.S_IWOTH
-            + stat.S_IRUSR
-            + +stat.S_IRGRP
-            + stat.S_IROTH,
-        )
-
-        new_command = f"{self.execfile} > {self.logfile} 2> {self.errfile}"
-
-        return new_command
-
-    def execute(self, offset, extent):
-        """
-        Execute a wrapped command on subprocesses given a task slot range.
-
-        Parameters
-        ----------
-        offset : int
-            Offset in list of total available SLURM tasks available. This will
-            determine the `-o` paraemter to run ibrun with.
-        extent : int
-            Extent, or number of slots, to occupy in list of total available
-            SLURM tasks available. This will determine the `-n` parameter to
-            run ibrun with.
-
-        """
-        self.start_ts = time.time()
-        self.slots = (offset, extent)
-        self.sub_proc = subprocess.Popen(
-            self._wrap(offset, extent), shell=True, stdout=subprocess.PIPE
-        )
-        self.pid = self.sub_proc.pid
-
-    def terminate(self):
-        """Terminate subprocess executing task if it exists."""
-        if self.sub_proc is not None:
-            self.sub_proc.terminate()
-
-    def get_rc(self):
-        """Poll process to see if completed"""
-        self.rc = self.sub_proc.poll()
-        if self.rc is not None:
-            self.end_ts = time.time()
-            self.running_time = self.end_ts - self.start_ts
-            if self.rc > 0:
-                if Path(self.errfile).stat().st_size>0:
-                    with open(self.errfile, 'r') as lf:
-                        self.err_msg = lf.readlines()[-1]
-            return self.rc
-
-        return self.rc
-
 
 class SLURMTaskQueue:
     """
@@ -471,7 +141,7 @@ class SLURMTaskQueue:
 
     def __str__(self):
         queue_str = ""
-        sc = lambda x :  _compact_int_list(sorted([t.task_id for t in x]))
+        sc = lambda x :  compact_int_list(sorted([t.task_id for t in x]))
         if len(self.queue) > 0:
             queue_str += f"queued=[{sc(self.queue)}], "
         if len(self.running) > 0:
@@ -482,6 +152,8 @@ class SLURMTaskQueue:
             queue_str += f"timed_out=[{sc(self.timed_out)}], "
         if len(self.errored) > 0:
             queue_str += f"errored=[{sc(self.errored)}, "
+        if len(self.invalid) > 0:
+            queue_str += f"invalid=[{sc(self.invalid)}, "
         queue_str = queue_str[:-2] if len(queue_str)!=0 else queue_str
 
         unique_slots = list(set([s.host for s in self.task_slots]))
@@ -490,11 +162,8 @@ class SLURMTaskQueue:
             free = []; busy = [];
             for s in self.task_slots:
                 if s.host == h:
-                    if s.is_free():
-                        free.append(s.idx)
-                    else:
-                        busy.append(s.idx)
-            status.append((h, _compact_int_list(free), _compact_int_list(busy)))
+                    free.append(s.idx) if s.is_free() else busy.append(s.idx)
+            status.append((h, compact_int_list(free), compact_int_list(busy)))
         slots = [f'{x[0]}: (FREE: [{x[1]}], BUSY: [{x[2]}])' for x in status]
 
         s = f"(workdir: {self.workdir}, "
@@ -516,7 +185,7 @@ class SLURMTaskQueue:
             ns = "-".join(splt[1:])
             ns = ns[1:-1] if ns[0] == "[" else ns
             padding = min([len(x) for x in re.split(r"[,-]", ns)])
-            hl += [f"{h}-{str(x).zfill(padding)}" for x in _expand_int_list(ns)]
+            hl += [f"{h}-{str(x).zfill(padding)}" for x in expand_int_list(ns)]
         self._logger.debug(f'Parsed nodelist {hl}', extra={'hl':hl})
 
         tasks_per_host = []
@@ -598,6 +267,8 @@ class SLURMTaskQueue:
                 self._logger.warning(
                         f"Task {task} to large. Adding to invalid list.",
                         extra=task.__dict__)
+                task.err_msg = "Invalid task (too many cores for queue): "
+                task.err_msg += "{task.cores}>len(self.task_slots)"
                 self.queue.remove(task)
                 self.invalid.append(task)
                 continue
@@ -614,8 +285,17 @@ class SLURMTaskQueue:
 
         num_removed = len(tqueue) - len(self.queue)
         if num_removed > 0:
-            self._logger.info(f"{num_removed} tasks removed from queue",
-                    extra=self.__dict__)
+            self._logger.info(f"Queue updated: {self}", extra=self.__dict__)
+
+    def _terminate_and_release(self, task, msg):
+        """Teriminate a task and release its resources"""
+        self._logger.error(msg, extra=task.__dict__)
+        task.terminate()
+        task.err_msg = msg
+        self.timed_out.append(task)
+        self._logger.info(
+                f"Releasing slots related assigned to task {task.task_id}")
+        self._release_slots(task.task_id)
 
     def _update(self):
         """
@@ -624,19 +304,14 @@ class SLURMTaskQueue:
         completed lists, or terminated and added to timed_out list if
         `task_max_runtime` is exceeded.
         """
-        to_release_task_ids = []
         running = []
         for t in self.running:
             rc = t.get_rc()
             if rc is None:
                 rt = time.time() - t.start_ts
                 if rt > self.task_max_runtime:
-                    self._logger.error(
-                            f"Task {t.task_id} has exceeded max runtime {rt}",
-                            extra=t.__dict__)
-                    t.terminate()
-                    self.timed_out.append(t)
-                    to_release_task_ids.append(t.task_id)
+                    msg = f"Task {t.task_id} has exceeded task max runtime {rt}"
+                    self._terminate_and_release(t, msg)
                 else:
                     running.append(t)
             else:
@@ -645,23 +320,18 @@ class SLURMTaskQueue:
                             f"{t.task_id} DONE: {t.running_time:5.3f}s",
                             extra=t.__dict__)
                     self.completed.append(t)
-                    to_release_task_ids.append(t.task_id)
+                    self._release_slots(t.task_id)
                 else:
                     msg = f"{t.task_id} FAILED: rt = {t.running_time:5.3f}s, "
                     msg += f"rc = {t.rc}, err file (last_line) = {t.err_msg}"
                     self._logger.error(msg, extra=t.__dict__)
                     self.errored.append(t)
-                    to_release_task_ids.append(t.task_id)
+                    self._release_slots(t.task_id)
 
-        self.running = running
 
         # Release slots for completed tasks
-        if len(to_release_task_ids) > 0:
-            self._logger.info(
-                    f"Releasing slots related to nodes {to_release_task_ids}",
-                    extra={'to_release': to_release_task_ids})
-            for task_id in to_release_task_ids:
-                self._release_slots(task_id)
+        if len(running) != len(self.running):
+            self.running = running
             self._logger.info(f"Queue updated {self}", extra=self.__dict__)
 
     def enqueue_from_json(self, filename, cores=1):
@@ -716,10 +386,13 @@ class SLURMTaskQueue:
         while True:
             # Check to see if max runtime is exceeded
             elapsed = time.time() - self.start_ts
-            self._logger.debug("Starting run iteration",
-                    extra={'elapsed_time': elapsed})
+            # self._logger.debug(f"run ts {elapsed}:\n{self.summary_by_task()}",
+            #         extra={'elapsed_time': elapsed})
             if elapsed >= self.max_runtime:
-                self._logger.info("Exceeded max runtime", extra=self.__dict__)
+                msg = f"Queue exceeded max runtime: {elapsed}>{self.max_runtime}"
+                self._logger.info(msg, extra=self.__dict__)
+                for t in self.running:
+                    self._terminate_and_release(t, msg)
                 break
 
             # Start queued jobs
@@ -740,6 +413,7 @@ class SLURMTaskQueue:
                     break
 
         self.running_time = time.time() - self.start_ts
+        self._logger.info("Queue run finished", extra=self.__dict__)
 
     def read_log(self):
         """Return read json log"""
@@ -749,13 +423,91 @@ class SLURMTaskQueue:
                 log_entries.append(json.loads(line))
         return log_entries
 
-    def view_log(self,
+    def get_log(self,
             fields=['asctime', 'levelname', 'message'],
-            search='message',
-            match=r'.'):
+            search=None,
+            match=None,
+            print_log=True):
         """Print log entries"""
         log = self.read_log()
-        _print_res(log, fields=fields, search=search, match=match)
+        filtered = filter_res(log, fields=fields, search=search,
+                match=match, print_res=print_log)
+        return filtered
+
+    def summary_by_task(self,
+            fields=['task_id', 'running_time', 'cores', 'command'],
+            search=None,
+            match=r'.',
+            all_fields=False,
+            print_res=True,
+            ):
+        """Summarize queue stats by task"""
+        avail_fields = ['task_id', 'command', 'cores', 'pre', 'post', 'cdir',
+                'workdir', 'execfile', 'logfile', 'errfile', 'slots',
+                'start_ts', 'end_ts', 'running_time', 'err_msg']
+        bad_fields = [f for f in fields if f not in avail_fields]
+        if len(bad_fields) > 0:
+            msg = f'Invalid fields {bad_fields}. Avialable {avail_fields}'
+            raise ValueError(msg)
+        fields = avail_fields if all_fields else fields
+
+        # Build dictionary of task attributes according to fields list
+        get_info = lambda x : [(f, getattr(x,f)) for f in fields]
+
+        task_info = []
+        for task in self.running:
+            task_info.append(
+                    dict([('status', 'running')] + get_info(task)))
+        for task in self.queue:
+            task_info.append(
+                    dict([('status', 'queued')] + get_info(task)))
+        for task in self.completed:
+            task_info.append(
+                    dict([('status', 'completed')] + get_info(task)))
+        for task in self.errored:
+            task_info.append(
+                    dict([('status', 'errored')] + get_info(task)))
+        for task in self.invalid:
+            task_info.append(
+                    dict([('status', 'invalid')] + get_info(task)))
+
+        fields = ['status'] + fields
+        filtered = filter_res(task_info, fields=fields, search=search,
+                match=match, print_res=print_res)
+
+        return filtered
+
+    def summary_by_slots(self,
+            fields=['idx', 'host', 'status', 'num_tasks', 'task_ids',
+                'free_time', 'busy_time'],
+            search=None,
+            match=r'.',
+            all_fields=False,
+            print_res=True,
+):
+        """Summarize queue stats by slots"""
+        avail_fields = ['idx', 'host', 'status', 'num_tasks', 'task_ids',
+                'free_time', 'busy_time']
+        bad_fields = [f for f in fields if f not in avail_fields]
+        if len(bad_fields) > 0:
+            msg = f'Invalid fields {bad_fields}. Avialable {avail_fields}'
+            raise ValueError(msg)
+
+        slot_info = []
+        for s in self.task_slots:
+            slot_info.append({'idx': s.idx,
+                'host': s.host,
+                'status': 'FREE' if s.free else 'BUSY',
+                'num_tasks': len(s.tasks),
+                'task_ids': [t.task_id for t in s.tasks],
+                'free_time': s.free_time,
+                'busy_time': s.busy_time})
+
+        fields = fields
+        filtered = filter_res(slot_info, fields=fields, search=search,
+                match=match, print_res=print_res)
+
+        return filtered
 
     def cleanup(self):
         """Clean-up Task Queue by removing workdir"""
