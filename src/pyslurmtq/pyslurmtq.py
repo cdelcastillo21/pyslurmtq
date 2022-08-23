@@ -20,12 +20,13 @@ References:
     - https://pip.pypa.io/en/stable/reference/pip_install
 """
 
+import pdb
 import argparse
 import logging
 import sys
-from SLURMTaskQueue import SLURMTaskQueue
+from pyslurmtq.SLURMTaskQueue import SLURMTaskQueue
 
-from pyslurmqt import __version__
+from pyslurmtq import __version__
 
 __author__ = "Carlos del-Castillo-Negrete"
 __copyright__ = "Carlos del-Castillo-Negrete"
@@ -55,6 +56,45 @@ def parse_args(args):
             help="input json file with tasks to execute",
             type=str)
     parser.add_argument(
+        "-w",
+        "--workdir",
+        type=str,
+        dest="workdir",
+        help="Directory to store temporary job files. Defaults to .sqt-job*",
+    )
+    parser.add_argument(
+        "-tmr",
+        "--task-max-rt",
+        type=float,
+        dest="task_max_rt",
+        default=1e10,
+        help="Max runtime for any task in seconds.",
+    )
+    parser.add_argument(
+        "-mr",
+        "--max-rt",
+        type=float,
+        dest="max_rt",
+        default=1e10,
+        help="Max runtime for execution of all tasks in queue.",
+    )
+    parser.add_argument(
+        "-d",
+        "--delay",
+        type=float,
+        dest="delay",
+        default=1,
+        help="Number of seconds to delay between queue updates.",
+    )
+    parser.add_argument(
+        "--cleanup",
+        type=bool,
+        dest="cleanup",
+        default=True,
+        action=argparse.BooleanOptionalAction,
+        help="Whether to cleanup queue temp directory when finished",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         dest="loglevel",
@@ -73,15 +113,16 @@ def parse_args(args):
     return parser.parse_args(args)
 
 
-def setup_logging(loglevel):
-    """Setup basic logging
+def setup_logging(loglevel): #, logfile):
+    """Setup json logging
 
     Parameters
     ----------
     loglevel : int
         minimum loglevel for emitting messages
+    logfile : str
+        Path to log file to create for task queue.
     """
-    # Initialize Logging
     logger = logging.getLogger("pylauncher")
     logformat = "%(asctime)s | %(name)s | %(levelname)s | %(message)s"
     logging.basicConfig(
@@ -104,11 +145,25 @@ def main(args):
     """
     args = parse_args(args)
 
+    args.loglevel = logging.WARNING if args.loglevel is None else args.loglevel
+    setup_logging(args.loglevel)
+
     _logger.info(f"Initializing Task Queue from file {args.infile}")
-    tq = SLURMTaskQueue(args.infile)
-    _logger.info(f"Running Task Queue")
+    tq = SLURMTaskQueue(
+            args.infile,
+            workdir=args.workdir,
+            task_max_runtime=args.task_max_rt,
+            max_runtime=args.max_rt,
+            delay=args.delay,
+            loglevel=args.loglevel)
+    _logger.info("Running Task Queue")
     tq.run()
-    _logger.info(f"Done Running Tasks in Queue")
+    _logger.info("Done Running Tasks in Queue")
+    _logger.info(f"Task Summary:\n{tq.summary_by_task()}")
+    _logger.info(f"Slot Ussage Summary:\n{tq.summary_by_slot()}")
+    if args.cleanup:
+        tq.cleanup()
+
 
 
 def run():
