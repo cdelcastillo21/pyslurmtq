@@ -150,7 +150,7 @@ def main(args):
 
     _logger.info(f"Initializing Task Queue from file {args.infile}")
     tq = SLURMTaskQueue(
-            args.infile,
+            task_file=args.infile,
             workdir=args.workdir,
             task_max_runtime=args.task_max_rt,
             max_runtime=args.max_rt,

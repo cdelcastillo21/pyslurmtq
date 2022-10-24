@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import pdb
+from typing import List
 import re
 import stat
 import subprocess
@@ -86,7 +87,8 @@ class SLURMTaskQueue:
     """
     def __init__(
         self,
-        commandfile: str,
+        tasks: List[dict] = None,
+        task_file: str = None,
         workdir: str = None,
         task_max_runtime: float = 1e10,
         max_runtime: float = 1e10,
@@ -137,7 +139,10 @@ class SLURMTaskQueue:
         self.invalid = []
 
         # Enqueue tasks from json file
-        self.enqueue_from_json(commandfile)
+        if task_file is not None:
+            self.enqueue_from_json(task_file)
+        if tasks is not None:
+            self.enqueue(tasks)
 
         self._logger.info(f'Queue initialized: {self}', extra=self.__dict__)
 
@@ -345,6 +350,47 @@ class SLURMTaskQueue:
         _  = self.summary_by_slot(print_res=False,
                 fname=str(self.workdir / 'slot_summary.txt'))
 
+    def enqueue(self, task_list: List[dict], cores: int=1):
+        """
+        Add a list of tasks to the queue. Each task is a dictionary  with at mininum
+        each containing a `cmnd` field indicating the command to be executed in parallel
+        using a corresponding number of `cores`, which defaults to the passed in value
+        if not specified per task configuration.
+
+        Parameters
+        ----------
+        task_list : List[dict]
+            List of dictionaries, one per task with the following fields:
+                'cmnd' : required, parllalel command to execute
+                'cores' : optional, number of cores to user on this task
+                'pre_process' : optional, serial command to run prior to running 'cmnd'
+                'post_process' : optional, serial command to run after running 'cmnd'
+        cores : int
+            Default number of cores to use for each task if not specified within
+            task configuration.
+
+        """
+        self._logger.debug(f'Enqueuing {len(task_list)} tasks.')
+
+        for i, t in enumerate(task_list):
+            self._logger.debug(f'Attempting to create task {self.task_count}',
+                    extra=t)
+            try:
+                task = Task(
+                        self.task_count,
+                        t.pop('cmnd', None),
+                        t.pop('workdir', self.workdir),
+                        t.pop('cores', cores),
+                        t.pop('pre', None),
+                        t.pop('post', None),
+                        t.pop('cdir', None))
+            except ValueError as v:
+                self._logger.error(f'Bad task in list at idx {i}: {v}', extra=t)
+                continue
+            self._logger.debug(f'Enqueing {task}', extra=task.__dict__)
+            self.queue.append(task)
+            self.task_count += 1
+
     def enqueue_from_json(self, filename, cores=1):
         """
         Add a list of tasks to the queue from a JSON file. The json file must
@@ -367,25 +413,7 @@ class SLURMTaskQueue:
         with open(filename, "r") as fp:
             task_list = json.load(fp)
         self._logger.debug(f'Found {len(task_list)} tasks.')
-
-        for i, t in enumerate(task_list):
-            self._logger.debug(f'Attempting to create task {self.task_count}',
-                    extra=t)
-            try:
-                task = Task(
-                        self.task_count,
-                        t.pop('cmnd', None),
-                        t.pop('workdir', self.workdir),
-                        t.pop('cores', cores),
-                        t.pop('pre', None),
-                        t.pop('post', None),
-                        t.pop('cdir', None))
-            except ValueError as v:
-                self._logger.error(f'Bad task in list at idx {i}: {v}', extra=t)
-                continue
-            self._logger.debug(f'Enqueing {task}', extra=task.__dict__)
-            self.queue.append(task)
-            self.task_count += 1
+        self.enqueue(task_list, cores=cores)
 
     def run(self):
         """

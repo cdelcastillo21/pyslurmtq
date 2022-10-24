@@ -59,6 +59,5 @@ def test_run(capsys, multiple_node_multiple_tasks, test_dir):
     ]
     with patch.object(sys, "argv", testargs):
         run()
-        pdb.set_trace()
 
     # TODO: Check output and delte default workdir created by task queue

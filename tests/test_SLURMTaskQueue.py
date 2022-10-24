@@ -34,7 +34,7 @@ class TestSLURMTaskQueue:
     def test_default_workdir(self, single_node_single_task, test_dir):
         """Test using default workdir"""
         task_file = gen_test_file(test_dir)
-        tq = SLURMTaskQueue(task_file, def_test_dir)
+        tq = SLURMTaskQueue(task_file=task_file, workdir=def_test_dir)
         assert str(tq.workdir.resolve()) == str(def_test_dir)
         tq.cleanup()
 

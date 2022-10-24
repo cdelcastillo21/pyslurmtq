@@ -127,7 +127,7 @@ def single_bad_task_queue(single_node_single_task, test_dir):
             cores=1,
             num_tasks=0,
             bad_tasks=1)
-    tq = SLURMTaskQueue(task_file)
+    tq = SLURMTaskQueue(task_file=task_file)
     yield tq
     tq.cleanup()
 
@@ -140,7 +140,7 @@ def single_task_queue(single_node_single_task, test_dir):
             cores=1,
             num_tasks=1,
             bad_tasks=0)
-    tq = SLURMTaskQueue(task_file, workdir=def_test_dir)
+    tq = SLURMTaskQueue(task_file=task_file, workdir=def_test_dir)
     yield tq
     tq.cleanup()
 
@@ -153,7 +153,7 @@ def single_task_error_queue(single_node_single_task, test_dir):
             num_tasks=0,
             fail_tasks=1,
             bad_tasks=0)
-    tq = SLURMTaskQueue(task_file, workdir=def_test_dir)
+    tq = SLURMTaskQueue(task_file=task_file, workdir=def_test_dir)
     yield tq
     tq.cleanup()
 
@@ -169,7 +169,7 @@ def single_pre_post_task_queue(single_node_single_task, test_dir):
             cdir=True,
             num_tasks=1,
             sleep=0.1)
-    tq = SLURMTaskQueue(task_file)
+    tq = SLURMTaskQueue(task_file=task_file)
     yield tq
     tq.cleanup()
 
@@ -182,7 +182,7 @@ def single_too_large_task_queue(single_node_single_task, test_dir):
             cores=10,
             num_tasks=1,
             sleep=0.1)
-    tq = SLURMTaskQueue(task_file)
+    tq = SLURMTaskQueue(task_file=task_file)
     yield tq
     tq.cleanup()
 
@@ -196,7 +196,7 @@ def timeout_task_queue(single_node_single_task, test_dir):
             num_tasks=1,
             pre="echo pre",
             sleep=10)
-    tq = SLURMTaskQueue(task_file, max_runtime=0.1)
+    tq = SLURMTaskQueue(task_file=task_file, max_runtime=0.1)
     yield tq
     tq.cleanup()
 
@@ -210,7 +210,7 @@ def task_timeout_task_queue(single_node_single_task, test_dir):
             num_tasks=1,
             pre="echo pre",
             sleep=10)
-    tq = SLURMTaskQueue(task_file, task_max_runtime=0.1)
+    tq = SLURMTaskQueue(task_file=task_file, task_max_runtime=0.1)
     yield tq
     tq.cleanup()
 
@@ -224,7 +224,7 @@ def multiple_task_queue(single_node_multiple_tasks, test_dir):
             cores=1,
             num_tasks=10,
             sleep=0.1)
-    tq = SLURMTaskQueue(task_file)
+    tq = SLURMTaskQueue(task_file=task_file)
     yield tq
     tq.cleanup()
 
@@ -241,7 +241,7 @@ def multiple_random_task_queue(multiple_node_multiple_tasks, test_dir):
             max_cores=7,
             sleep = 0.01,
             max_sleep=0.1)
-    tq = SLURMTaskQueue(task_file, delay=0.1)
+    tq = SLURMTaskQueue(task_file=task_file, delay=0.1)
     yield tq
     tq.cleanup()
 
@@ -259,6 +259,6 @@ def multiple_good_and_bad_queue(multiple_node_multiple_tasks, test_dir):
             max_cores=15,
             sleep = 0.1,
             max_sleep=2)
-    tq = SLURMTaskQueue(task_file, task_max_runtime=1, delay=0.1)
+    tq = SLURMTaskQueue(task_file=task_file, task_max_runtime=1, delay=0.1)
     yield tq
     tq.cleanup()
