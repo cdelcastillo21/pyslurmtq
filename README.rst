@@ -14,7 +14,11 @@ pyslurmtq
     A Python SLURM Task Queue for batch job submission.
 
 
-`pyslurmtq` is a Python library for managing a queue of tasks to be executed on a SLURM cluster. It provides a simple interface for enqueuing tasks from a JSON file, running the tasks on the cluster, and monitoring the status of the tasks.
+`pyslurmtq` is a Python library for managing a queue of tasks to be executed on a an HPC cluster using a SLURM schedule manager.
+It provides a python class for managing a task queue, as well as a command-line interface (CLI) for running a task queue from a JSON file containing task configurations.
+It is designed to be flexible and easy to use, and to provide a simple interface for running a batch of tasks on a SLURM managed HPC cluster.
+
+This project was originally motiviated by the pylauncher (https://github.com/TACC/pylauncher) project, which provides a similar interface for running a batch of tasks on a SLURM managed HPC cluster.
 
 Installation
 ------------
@@ -37,7 +41,7 @@ To use `pyslurmtq`, you can create a JSON file containing the task configuration
 This will run the tasks specified in the `tasks.json` file on the SLURM cluster.
 
 
-For example, to configure a batch of two jobs, the first with 4 cores and the second with 8 cores, you can create a JSON file with the following contents:
+For example, to configure a batch of three jobs, the first and third with 8 cores and the second with 4 cores, you can create a JSON file with the following contents:
 
 .. code-block:: json
 
@@ -66,7 +70,7 @@ The second task creates an output directory before running the command, and move
 Finall the third task creates the output directory before running the command, but does not move the output after the command finishes, since the 'cdir' field ensures the main command is executed in the output directory created by the pre process command.
 This demonstrates how the task list is flexible enough to handle a variety of use cases. 
 
-The full list of configurable optiosn for task fields is shown below:
+The full list of configurable options for task fields is shown below:
 
 .. list-table:: Task File Fields
    :widths: 25 25 50
@@ -95,7 +99,7 @@ The full list of configurable optiosn for task fields is shown below:
      - Yes
 
 Upon completion, two summaries are printed.
-The first is a summary by task, indicated how long each task took to run:
+The first is a summary by task, indicated how long each task took to run, for example:
 
 .. code-block:: bash
 
@@ -109,7 +113,7 @@ The first is a summary by task, indicated how long each task took to run:
     |  errored  |    3    | 1.0207343101501465 |   2   | echo main |                                                                                                                    
     +-----------+---------+--------------------+-------+-----------+                                                                                                                    
 
-The second is a summary by compute slot available, along with how many tasks were executed on it, which tasks were executed on it, and the total free time and busy time for the node:
+The second is a summary by compute slot available, along with how many tasks were executed on it, which tasks were executed on it, and the total free time and busy time for the node, for example:
 
 .. code-block:: bash
 
@@ -131,7 +135,7 @@ The second is a summary by compute slot available, along with how many tasks wer
     +-----+----------+--------+-----------+----------+----------------------+--------------------+  
 
 The CLI currently provides only an entrypoint to launch a task queue for a given task file.
-For more advanced usage, the `pyslurmtq` library can be imported and used directly in Python code using the SLURMTaskQueue class.
+For more advanced usage, the `pyslurmtq` library can be imported and used directly in Python code using the `SLURMTaskQueue` class.
 
 
 Contact Info and Open Bugs/Issues/Feature Requests in GitHub
