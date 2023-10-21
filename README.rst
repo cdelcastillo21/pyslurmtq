@@ -5,18 +5,15 @@
 .. image:: https://img.shields.io/pypi/v/pyslurmtq
    :alt: PyPI - Version
 
-# .. image:: https://img.shields.io/pypi/dm/pyslurmtq
-#    :alt: PyPI - Downloads
-
 .. image:: https://img.shields.io/github/last-commit/cdelcastillo21/pyslurmtq/master?logo=Git
    :alt: GitHub last commit (branch)
 
 .. image:: https://codecov.io/gh/cdelcastillo21/pyslurmtq/graph/badge.svg?token=Y6YmyncCKI 
  :target: https://codecov.io/gh/cdelcastillo21/pyslurmtq
 
-# .. image:: https://img.shields.io/coveralls/<USER>/pyslurmtq.svg
-#         :alt: Coveralls
-#         :target: https://coveralls.io/r/<USER>/pyslurmtq
+.. image:: https://coveralls.io/repos/github/cdelcastillo21/pyslurmtq/badge.svg?branch=ci-cd
+  :target: https://coveralls.io/github/cdelcastillo21/pyslurmtq?branch=ci-cd
+
 
 
 =========
