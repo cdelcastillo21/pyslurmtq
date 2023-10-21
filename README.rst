@@ -1,12 +1,19 @@
 .. image:: https://readthedocs.org/projects/pyslurmtq/badge/?version=latest
     :target: https://pyslurmtq.readthedocs.io/en/latest/?badge=latest
     :alt: Documentation Status
+.. image:: https://img.shields.io/pypi/v/pyslurmtq.svg
+    :target: https://pypi.org/project/pyslurmtq/
+    :alt: PyPI-Server
 .. image:: https://img.shields.io/coveralls/<USER>/pyslurmtq.svg
         :alt: Coveralls
         :target: https://coveralls.io/r/<USER>/pyslurmtq
-.. image:: https://img.shields.io/pypi/v/pyslurmtq.svg
-        :alt: PyPI-Server
-        :target: https://pypi.org/project/pyslurmtq/
+
+.. image:: https://img.shields.io/pypi/dt/ansicolortags.svg
+    :target: https://pypi.python.org/pypi/ansicolortags/
+
+.. image:: https://img.shields.io/github/last-commit/cdelcastillo21/pyslurmtq/master?logo=Git
+   :alt: GitHub last commit (branch)
+
 
 
 =========
@@ -71,7 +78,7 @@ For example, to configure a batch of three jobs, the first and third with 8 core
 Note how the first task uses the workdir argument to have the task queue create a directory for the task to run in, which is relative to where the queue was invoked in.
 The second task creates an output directory before running the command, and moves the output to that directory after the command finishes.
 Finall the third task creates the output directory before running the command, but does not move the output after the command finishes, since the 'cdir' field ensures the main command is executed in the output directory created by the pre process command.
-This demonstrates how the task list is flexible enough to handle a variety of use cases. 
+This demonstrates how the task list is flexible enough to handle a variety of use cases.
 
 The full list of configurable options for task fields is shown below:
 
@@ -107,14 +114,14 @@ The first is a summary by task, indicated how long each task took to run, for ex
 .. code-block:: bash
 
     +-----------+---------+--------------------+-------+-----------+
-    |   status  | task_id |    running_time    | cores |  command  |                                                                                                                    
-    +-----------+---------+--------------------+-------+-----------+                                                                                                                    
-    | completed |    0    | 1.0178141593933105 |   1   | echo main |                                                                                                                    
-    | completed |    1    | 1.0130047798156738 |   1   | echo main |                                                                                                                    
-    | completed |    2    | 1.008800983428955  |   1   | echo main |                                                                                                                    
-    |  errored  |    4    | 1.0217607021331787 |   4   | echo main |                                                                                                                    
-    |  errored  |    3    | 1.0207343101501465 |   2   | echo main |                                                                                                                    
-    +-----------+---------+--------------------+-------+-----------+                                                                                                                    
+    |   status  | task_id |    running_time    | cores |  command  |
+    +-----------+---------+--------------------+-------+-----------+
+    | completed |    0    | 1.0178141593933105 |   1   | echo main |
+    | completed |    1    | 1.0130047798156738 |   1   | echo main |
+    | completed |    2    | 1.008800983428955  |   1   | echo main |
+    |  errored  |    4    | 1.0217607021331787 |   4   | echo main |
+    |  errored  |    3    | 1.0207343101501465 |   2   | echo main |
+    +-----------+---------+--------------------+-------+-----------+
 
 The second is a summary by compute slot available, along with how many tasks were executed on it, which tasks were executed on it, and the total free time and busy time for the node, for example:
 
@@ -132,10 +139,10 @@ The second is a summary by compute slot available, along with how many tasks wer
     |  6  | c302-005 |  FREE  |     1     |   [0]    | 0.019230127334594727 | 1.013009786605835  |
     |  7  | c302-005 |  FREE  |     1     |   [1]    | 0.023468732833862305 | 1.0088229179382324 |
     |  8  | c302-005 |  FREE  |     1     |   [2]    | 0.027381420135498047 | 1.0049347877502441 |
-    |  9  | c302-005 |  FREE  |     0     |    []    |         0.0          |        0.0         |                                                                                      
-    |  10 | c302-005 |  FREE  |     0     |    []    |         0.0          |        0.0         |                                        
-    |  11 | c302-005 |  FREE  |     0     |    []    |         0.0          |        0.0         |                                                                                      
-    +-----+----------+--------+-----------+----------+----------------------+--------------------+  
+    |  9  | c302-005 |  FREE  |     0     |    []    |         0.0          |        0.0         |
+    |  10 | c302-005 |  FREE  |     0     |    []    |         0.0          |        0.0         |
+    |  11 | c302-005 |  FREE  |     0     |    []    |         0.0          |        0.0         |
+    +-----+----------+--------+-----------+----------+----------------------+--------------------+
 
 The CLI currently provides only an entrypoint to launch a task queue for a given task file.
 For more advanced usage, the `pyslurmtq` library can be imported and used directly in Python code using the `SLURMTaskQueue` class.
