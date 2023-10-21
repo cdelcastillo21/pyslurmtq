@@ -25,10 +25,10 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 from pythonjsonlogger import jsonlogger
-from taccjm.pyslurmtq.Slot import Slot
-from taccjm.pyslurmtq.Task import Task
-from taccjm.pyslurmtq.utils import (compact_int_list, expand_int_list,
-                                    filter_res)
+from pyslurmtq.Slot import Slot
+from pyslurmtq.Task import Task
+from pyslurmtq.utils import (compact_int_list, expand_int_list,
+                             filter_res)
 
 __author__ = "Carlos del-Castillo-Negrete"
 __copyright__ = "Carlos del-Castillo-Negrete"
