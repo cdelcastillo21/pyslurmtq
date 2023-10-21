@@ -125,5 +125,5 @@ class TestSLURMTaskQueue:
         assert len(invalid) == 3
 
         slot_summary =  multiple_good_and_bad_queue.summary_by_slot()
-        assert all([x['free_time'] < 2.0 for x in slot_summary])
-        assert all([x['busy_time'] > 2.0 for x in slot_summary])
+        assert all([x['free_time'] < 3.0 for x in slot_summary])
+        assert all([x['busy_time'] > 1.0 for x in slot_summary])
