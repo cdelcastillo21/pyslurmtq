@@ -49,4 +49,4 @@ jobs:
         fail_ci_if_error: true # optional (default = false)
         verbose: true # optional (default = false)
         flags: unittests
-        files: .cov/cov.xml
+        files: cov.xml
