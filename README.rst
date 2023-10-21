@@ -1,3 +1,6 @@
+.. image:: https://readthedocs.org/projects/pyslurmtq/badge/?version=latest
+    :target: https://pyslurmtq.readthedocs.io/en/latest/?badge=latest
+    :alt: Documentation Status
 .. image:: https://img.shields.io/coveralls/<USER>/pyslurmtq.svg
         :alt: Coveralls
         :target: https://coveralls.io/r/<USER>/pyslurmtq
