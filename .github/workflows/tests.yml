@@ -1,9 +1,50 @@
-name: Tests
+name: Example workflow for Codecov
 
-on:
-  push:
-    branches: [master]
+on: 
+  - pull_request
 
+jobs:
+  run:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+    env:
+      OS: ${{ matrix.os }}
+      PYTHON: '3.12'
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest
+        pip install pytest-cov
+    - name: Generate coverage report
+      run: |
+        pytest \
+            --cov-report term-missing \
+            --cov-report xml:cov.xml \
+            --cov pyslurmtq
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        directory: ./coverage/reports/
+        env_vars: OS,PYTHON
+        fail_ci_if_error: true
+        files: cov.xml
+        flags: unittests
+        name: codecov-umbrella
+        verbose: true
+
+# name: Tests
+# on:
+#   - pull_request
+# 
 # on:
 #   push:
 #     branches: [master]
@@ -21,33 +62,33 @@ on:
 #       - '.github/workflows/tests.yml'
 #   schedule:
 #     - cron: '0 0 1 * *'
-
-jobs:
-  test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest]
-        python-version: ['3.12']
-
-    steps:
-    - uses: actions/checkout@v2
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v2
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install tox tox-gh-actions
-    - name: Test with tox
-      run: tox
-    - name: Upload coverage reports to Codecov
-      uses: codecov/codecov-action@v3
-      env:
-        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-      with:
-        fail_ci_if_error: true # optional (default = false)
-        verbose: true # optional (default = false)
-        flags: unittests
-        files: cov.xml
+# 
+# jobs:
+#   test:
+#     runs-on: ${{ matrix.os }}
+#     strategy:
+#       matrix:
+#         os: [ubuntu-latest]
+#         python-version: ['3.12']
+# 
+#     steps:
+#     - uses: actions/checkout@v2
+#     - name: Set up Python ${{ matrix.python-version }}
+#       uses: actions/setup-python@v2
+#       with:
+#         python-version: ${{ matrix.python-version }}
+#     - name: Install dependencies
+#       run: |
+#         python -m pip install --upgrade pip
+#         pip install tox tox-gh-actions
+#     - name: Test with tox
+#       run: tox
+#     - name: Upload coverage reports to Codecov
+#       uses: codecov/codecov-action@v3
+#       env:
+#         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+#       with:
+#         fail_ci_if_error: true # optional (default = false)
+#         verbose: true # optional (default = false)
+#         flags: unittests
+#         files: cov.xml
