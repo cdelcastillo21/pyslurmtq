@@ -9,8 +9,7 @@ TODO:
     - Figure out and make sure the following directories are not left after tests:
         .stq-job123456-8uhc7ekv/
         tests/test_tq/
-    - Check functional output/logs of excuting queues. Coverage there as of now
-    but need to check logic.
+    - Check output/logs of excuting queues. Coverage as of now but need to check logic.
 """
 import json
 import time

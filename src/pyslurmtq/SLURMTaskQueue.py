@@ -107,11 +107,11 @@ class SLURMTaskQueue:
             )
         else:
             self.workdir = Path(workdir) if type(workdir) != Path else workdir
-            self.workdir.mkdir(exist_ok=True)
+        self.workdir.mkdir(exist_ok=True)
 
         # Set-up job logging
         self._logger = logging.getLogger(__name__)
-        _logHandler = logging.FileHandler(self.workdir / "tq_log")
+        _logHandler = logging.FileHandler(self.workdir / "tq_log.json")
         _formatter = jsonlogger.JsonFormatter(
             "%(asctime)s %(name)s - %(levelname)s:%(message)s"
         )
@@ -344,7 +344,7 @@ class SLURMTaskQueue:
         finished = len(self.running) - len(running)
         if finished > 0:
             self.running = running
-            self._logger.info("{finished} tasks finished", extra=self.__dict__)
+            self._logger.info(f"{finished} tasks finished", extra=self.__dict__)
 
     def _save_summary(self):
         """Save task and queue summaries to workdir"""

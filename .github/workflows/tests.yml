@@ -4,6 +4,24 @@ on:
   - push
   - pull_request
 
+# on:
+#   push:
+#     branches: [master]
+#     paths:
+#       - 'src/**.py'
+#       - 'setup.py'
+#       - 'setup.py'
+#       - '.github/workflows/tests.yml'
+#   pull_request:
+#     branches: [master]
+#     paths:
+#       - 'src/**.py'
+#       - 'setup.py'
+#       - 'setup.py'
+#       - '.github/workflows/tests.yml'
+#   schedule:
+#     - cron: '0 0 1 * *'
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
