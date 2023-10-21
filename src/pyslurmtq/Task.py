@@ -3,17 +3,18 @@ Task Class
 
 TODO: Description
 """
+import linecache as lc
 import os
 import pdb
 import stat
 import subprocess
-import linecache as lc
 import time
 from pathlib import Path
 
 __author__ = "Carlos del-Castillo-Negrete"
 __copyright__ = "Carlos del-Castillo-Negrete"
 __license__ = "MIT"
+
 
 class Task:
     """
@@ -77,15 +78,17 @@ class Task:
         measured by first instance the process is polled using `get_rc()` with a
         non-negative response, or None if task has not finished yet.
     """
-    def __init__(self,
-            task_id: int,
-            cmnd: str,
-            workdir: str,
-            cores: int=1,
-            pre: str=None,
-            post: str=None,
-            cdir: str=None):
 
+    def __init__(
+        self,
+        task_id: int,
+        cmnd: str,
+        workdir: str,
+        cores: int = 1,
+        pre: str = None,
+        post: str = None,
+        cdir: str = None,
+    ):
         self.task_id = task_id
         self.command = cmnd
         self.cores = int(cores)
@@ -94,7 +97,7 @@ class Task:
         self.cdir = cdir
 
         if self.cores <= 0:
-            raise ValueError(f'Cores for task must be >=0')
+            raise ValueError(f"Cores for task must be >=0")
 
         self.workdir = Path(workdir)
         self.workdir.mkdir(exist_ok=True)
@@ -223,7 +226,7 @@ class Task:
             if lineno is None:
                 with open(fname) as f:
                     output = f.readlines()
-            elif type(lineno) == list:
+            elif isinstance(lineno, list):
                 output = []
                 for ln in lineno:
                     output.append(lc.getline(fname, ln))
@@ -244,10 +247,6 @@ class Task:
         fpath = Path(self.workdir / fname)
         fname = fpath.name
         if not fpath.exists():
-            raise ValueError(f'Task file at {fname} at {fpath} does not exist')
+            raise ValueError(f"Task file at {fname} at {fpath} does not exist")
 
         return self._read_file(str(fpath.resolve()), lineno=lineno)
-
-
-
-

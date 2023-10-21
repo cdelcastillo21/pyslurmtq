@@ -14,6 +14,7 @@ __author__ = "Carlos del-Castillo-Negrete"
 __copyright__ = "Carlos del-Castillo-Negrete"
 __license__ = "MIT"
 
+
 class TestTask:
     """Unit tests for the task class"""
     def test_failed_task(self, test_dir):
