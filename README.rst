@@ -14,11 +14,11 @@ pyslurmtq
     A Python SLURM Task Queue for batch job submission.
 
 
-`pyslurmtq` is a Python library for managing a queue of tasks to be executed on a an HPC cluster using a SLURM schedule manager.
+`pyslurmtq` is a Python library for managing a queue of tasks to be executed on an HPC cluster using a `SLURM <https://slurm.schedmd.com>`_ schedule manager.
 It provides a python class for managing a task queue, as well as a command-line interface (CLI) for running a task queue from a JSON file containing task configurations.
 It is designed to be flexible and easy to use, and to provide a simple interface for running a batch of tasks on a SLURM managed HPC cluster.
 
-This project was originally motiviated by the pylauncher (https://github.com/TACC/pylauncher) project, which provides a similar interface for running a batch of tasks on a SLURM managed HPC cluster.
+This project was originally motiviated by the `pylauncher <https://github.com/TACC/pylauncher>`_ project, which provides a similar interface for running a batch of tasks on a SLURM managed HPC cluster.
 
 Installation
 ------------
@@ -80,16 +80,16 @@ The full list of configurable options for task fields is shown below:
      - Description
      - Optional?
    * - cmd
-     - The command to be executed.
+     - The main command to be executed in parallel.
      - No
    * - cores
      - The number of CPU cores to allocate for the task.
      - Yes
    * - pre
-     - The command to be executed in serial before the main parallel command.
+     - Pre-process command to be executed in serial before the main parallel command.
      - Yes
    * - post
-     - The command to be executed in serial after the main parallel command.
+     - Post-process command to be executed in serial after the main parallel command.
      - Yes
    * - cdir
      - The directory to change to before executing the main parallel command.
