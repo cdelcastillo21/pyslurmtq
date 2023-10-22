@@ -127,7 +127,8 @@ def single_bad_task_queue(single_node_single_task, test_dir):
             cores=1,
             num_tasks=0,
             bad_tasks=1)
-    tq = SLURMTaskQueue(task_file=task_file)
+    # tq = SLURMTaskQueue(task_file=task_file)
+    tq = SLURMTaskQueue(task_file=task_file, workdir=def_test_dir)
     yield tq
     tq.cleanup()
 

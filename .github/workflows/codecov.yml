@@ -1,17 +1,17 @@
-name: Tests
+name: Codecov Upload
 
 on:
-  - push
   - pull_request
 
 jobs:
-  test:
+  run:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
-        python-version: ['3.6', '3.7', '3.8', '3.9']
-
+        os: [ubuntu-latest]
+    env:
+      OS: ${{ matrix.os }}
+      PYTHON: '3.12'
     steps:
     - uses: actions/checkout@v2
     - name: Set up Python ${{ matrix.python-version }}
@@ -23,8 +23,14 @@ jobs:
         python -m pip install --upgrade pip
         pip install tox tox-gh-actions
     - name: Test with tox
-      run: tox
-    - name: Upload coverage reports to Codecov
+      run: tox -e cov
+    - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
-      env:
-      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        env_vars: OS,PYTHON
+        fail_ci_if_error: true
+        files: ./cov/cov.xml
+        flags: unittests
+        name: codecov-umbrella
+        verbose: true

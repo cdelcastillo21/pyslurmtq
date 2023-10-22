@@ -46,6 +46,7 @@ docs/api/*
 docs/_rst/*
 docs/_build/*
 cover/*
+cov/*
 MANIFEST
 
 # Per-project virtualenvs
