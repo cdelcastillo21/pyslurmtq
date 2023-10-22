@@ -1,6 +1,6 @@
 name: Codecov Upload
 
-on: 
+on:
   - pull_request
 
 jobs:

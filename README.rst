@@ -8,7 +8,7 @@
 .. image:: https://img.shields.io/github/last-commit/cdelcastillo21/pyslurmtq/master?logo=Git
    :alt: GitHub last commit (branch)
 
-.. image:: https://codecov.io/gh/cdelcastillo21/pyslurmtq/graph/badge.svg?token=Y6YmyncCKI 
+.. image:: https://codecov.io/gh/cdelcastillo21/pyslurmtq/graph/badge.svg?token=Y6YmyncCKI
  :target: https://codecov.io/gh/cdelcastillo21/pyslurmtq
 
 .. image:: https://coveralls.io/repos/github/cdelcastillo21/pyslurmtq/badge.svg?branch=ci-cd

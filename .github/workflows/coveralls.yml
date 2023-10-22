@@ -1,6 +1,6 @@
 name: Coveralls Upload
 
-on: 
+on:
   - pull_request
 
 jobs:
