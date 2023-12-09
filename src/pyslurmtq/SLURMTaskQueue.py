@@ -139,6 +139,9 @@ class SLURMTaskQueue:
         self.timed_out = []
         self.invalid = []
 
+        # Initialize DAG dictionary
+        self.dag = {}
+
         # Enqueue tasks from json file
         if task_file is not None:
             self.enqueue_from_json(task_file)
@@ -146,6 +149,26 @@ class SLURMTaskQueue:
             self.enqueue(tasks)
 
         self._logger.info(f"Queue initialized: {self}", extra=self.__dict__)
+    
+    
+    def check_dag_and_find_cycles(self):
+        """
+        TODO: Docmentation, trim graph according to task states.
+        """
+        G = nx.DiGraph(self.dag)
+
+        # Check if the graph is a DAG
+        if nx.is_directed_acyclic_graph(G):
+            # Find source nodes (nodes with no incoming edges)
+            source_nodes = [node for node in G.nodes() if G.in_degree(node) == 0]
+            return source_nodes
+
+        # If not a DAG, find all nodes in cycles
+        cycles = list(nx.simple_cycles(G))
+        nodes_in_cycles = set(node for cycle in cycles for node in cycle)
+
+    raise ValueError(f"The graph is not a DAG. Nodes in cycles: {nodes_in_cycles}")
+
 
     def __str__(self):
         queue_str = ""
@@ -377,6 +400,7 @@ class SLURMTaskQueue:
         """
         self._logger.debug(f"Enqueuing {len(task_list)} tasks.")
 
+        tasks = []
         for i, t in enumerate(task_list):
             self._logger.debug(f"Attempting to create task {self.task_count}", extra=t)
             try:
@@ -388,13 +412,45 @@ class SLURMTaskQueue:
                     t.pop("pre", None),
                     t.pop("post", None),
                     t.pop("cdir", None),
+                    t.pop("tag", None),
+                    t.pop("deps", None),
                 )
             except ValueError as v:
                 self._logger.error(f"Bad task in list at idx {i}: {v}", extra=t)
                 continue
+
+            if task.tag in self.dag.keys():
+                self._logger.error(f"Task with tag {task.tag} already exists", extra=t)
+                self.invalid.append(task)
+            else:
+                self.dag[task.tag] = task.deps
+                tasks.append(task)
+
+            self.task_count += 1
+            
+        # Check for validity of dag graph after adding tasks
+        root_tasks = self._enqueue_form_dag()
+
+        # Get all root nodes in DAG and add them to queue
+        root_nodes = self.get_dag_root_nodes()
+
+        for task in root_nodes:
             self._logger.debug(f"Enqueing {task}", extra=task.__dict__)
             self.queue.append(task)
-            self.task_count += 1
+    
+    import networkx as nx
+
+    def find_source_nodes(self):
+        G = nx.DiGraph(graph_dict)
+
+        # Check if the graph is a DAG
+        if not nx.is_directed_acyclic_graph(G):
+            raise ValueError("The graph is not a Directed Acyclic Graph (DAG)")
+
+        # Find source nodes (nodes with no incoming edges)
+        source_nodes = [node for node in G.nodes() if G.in_degree(node) == 0]
+
+        return source_nodes
 
     def enqueue_from_json(self, filename, cores=1):
         """

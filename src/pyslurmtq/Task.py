@@ -51,6 +51,8 @@ class Task:
         Command to be executed in serial after the main parallel command.
     cdir: str
         directory to change to before executing the main parallel command.
+    tag : str
+        String to be used to identify the task for specifying dependencies.
     workdir : str
         directory to store execution script, along with output and error files.
     execfile : str
@@ -88,6 +90,8 @@ class Task:
         pre: str = None,
         post: str = None,
         cdir: str = None,
+        tag: str = None,
+        deps: str = None,
     ):
         self.task_id = task_id
         self.command = cmnd
@@ -95,6 +99,11 @@ class Task:
         self.pre = pre
         self.post = post
         self.cdir = cdir
+        self.tag = str(tag) if tag is not None else f"task-{task_id}"
+        if deps is not None:
+            deps = [deps] if not isinstance(deps, list) else self.deps
+            deps = [str(d) for d in deps]
+        self.deps = deps
 
         if self.cores <= 0:
             raise ValueError(f"Cores for task must be >=0")
