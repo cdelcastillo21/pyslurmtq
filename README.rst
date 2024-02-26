@@ -152,13 +152,3 @@ Contact Info and Open Bugs/Issues/Feature Requests in GitHub
 ------------------------------------------------------------
 
 If you have any questions or issues with `pyslurmtq`, please feel free to contact us at `cdelcastilloew@gmail.com`. You can also report bugs, issues, or feature requests on our GitHub page: https://github.com/pyslurmtq/pyslurmtq/issues.
-
-
-.. _pyscaffold-notes:
-
-Note
-====
-
-This project has been set up using PyScaffold 4.3. For details and usage
-information on PyScaffold see https://pyscaffold.org/.
-cdelcastillo21: Break-up the TACCSimulation setup() method into smaller chunks
